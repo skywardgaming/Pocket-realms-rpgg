@@ -1,11 +1,15 @@
 import Phaser from 'phaser';
 import type { GameEngine } from '../game/engine';
 import type { GameEvent } from '../game/types';
-import { characterArt, dungeonArt, seeded } from './art';
+import { characterSheet, dungeonArt, seeded } from './art';
+import { stageTheme } from './themes';
 export class DungeonScene extends Phaser.Scene {
   private background!: Phaser.GameObjects.Image;
-  private hero!: Phaser.GameObjects.Image;
-  private enemySprite!: Phaser.GameObjects.Image;
+  private hero!: Phaser.GameObjects.Sprite;
+  private enemySprite!: Phaser.GameObjects.Sprite;
+  private lighting: Phaser.GameObjects.Image[] = [];
+  private renderedStage = 0;
+  private worldTime = 0;
   private shadows!: Phaser.GameObjects.Graphics;
   private effects!: Phaser.GameObjects.Graphics;
   private motes: Phaser.GameObjects.Rectangle[] = [];
@@ -22,9 +26,32 @@ export class DungeonScene extends Phaser.Scene {
     super('dungeon');
   }
   create() {
-    this.textures.addCanvas('dungeon', dungeonArt());
-    for (const key of ['hero', 'skeleton', 'hound', 'wraith', 'king'] as const)
-      this.textures.addCanvas(key, characterArt(key));
+    this.textures.addCanvas('dungeon', dungeonArt(this.engine.state.stage));
+    this.renderedStage = this.engine.state.stage;
+    for (const key of [
+      'hero',
+      'skeleton',
+      'hound',
+      'wraith',
+      'cultist',
+      'golem',
+      'king',
+    ] as const) {
+      const { sheet, width, height } = characterSheet(key);
+      const texture = this.textures.addCanvas(key, sheet)!;
+      this.textures.addSpriteSheet('', texture, { frameWidth: width, frameHeight: height });
+      this.anims.create({
+        key: `${key}-idle`,
+        frames: this.anims.generateFrameNumbers(key, { start: 0, end: 3 }),
+        frameRate: key === 'hound' ? 6 : 4,
+        repeat: -1,
+      });
+      this.anims.create({
+        key: `${key}-attack`,
+        frames: this.anims.generateFrameNumbers(key, { start: 4, end: 6 }),
+        frameRate: 15,
+      });
+    }
     const glowCanvas = document.createElement('canvas');
     glowCanvas.width = 64;
     glowCanvas.height = 64;
@@ -38,8 +65,16 @@ export class DungeonScene extends Phaser.Scene {
     this.textures.addCanvas('glow', glowCanvas);
     this.background = this.add.image(0, 0, 'dungeon').setOrigin(0.5);
     this.shadows = this.add.graphics();
-    this.hero = this.add.image(0, 0, 'hero').setOrigin(0.5, 1).setDepth(4);
-    this.enemySprite = this.add.image(0, 0, this.engine.enemy.kind).setOrigin(0.5, 1).setDepth(4);
+    for (let i = 0; i < 3; i++)
+      this.lighting.push(
+        this.add.image(0, 0, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDepth(2).setAlpha(0.25),
+      );
+    this.hero = this.add.sprite(0, 0, 'hero').setOrigin(0.5, 1).setDepth(4);
+    this.enemySprite = this.add.sprite(0, 0, this.engine.enemy.kind).setOrigin(0.5, 1).setDepth(4);
+    this.hero.play('hero-idle');
+    this.enemySprite.play(`${this.engine.enemy.kind}-idle`);
+    for (const sprite of [this.hero, this.enemySprite])
+      sprite.on('animationcomplete', () => sprite.play(`${sprite.texture.key}-idle`));
     this.effects = this.add.graphics().setDepth(3);
     this.bars = this.add.graphics().setDepth(6);
     const random = seeded(361);
@@ -74,6 +109,13 @@ export class DungeonScene extends Phaser.Scene {
       this.announcement.setPosition(w / 2, h * 0.35).setFontSize(w < 500 ? '15px' : '21px');
     const s = Math.max(w / 640, h / 360);
     this.background.setPosition(w / 2, h / 2).setScale(s);
+    const theme = stageTheme(this.engine.state.stage);
+    this.lighting.forEach((light, i) =>
+      light
+        .setPosition(w * [0.2, 0.5, 0.8][i], h * [0.43, 0.6, 0.43][i])
+        .setDisplaySize(w * 0.65, h * 0.9)
+        .setTint(Phaser.Display.Color.HexStringToColor(i === 1 ? theme.magic : theme.light).color),
+    );
     this.heroX = w * 0.29;
     this.enemyX = w * 0.72;
     this.ground = h * 0.83;
@@ -99,9 +141,28 @@ export class DungeonScene extends Phaser.Scene {
   private event(event: GameEvent) {
     if (!this.ready) return;
     const reduced = this.engine.state.settings.reducedMotion;
+    if (event.type === 'ability' && event.ability === 'cleave' && !reduced) {
+      const trail = this.add.graphics().setDepth(6);
+      for (let i = 0; i < 3; i++)
+        trail
+          .lineStyle(7 - i * 2, i === 2 ? 0xf0dfff : 0xb27bfa, 0.2 + i * 0.25)
+          .lineBetween(
+            this.heroX + 20,
+            this.ground - 60 + i * 5,
+            this.enemyX,
+            this.ground - 45 + i * 5,
+          );
+      this.tweens.add({
+        targets: trail,
+        alpha: 0,
+        duration: 350,
+        onComplete: () => trail.destroy(),
+      });
+    }
     if (event.type === 'spawn') {
       this.tweens.killTweensOf(this.enemySprite);
       this.enemySprite.setTexture(this.engine.enemy.kind).clearTint().setAlpha(1);
+      this.enemySprite.play(`${this.engine.enemy.kind}-idle`);
       this.layout();
       if (!reduced) {
         this.enemySprite.setAlpha(0);
@@ -120,6 +181,7 @@ export class DungeonScene extends Phaser.Scene {
         event.target === 'hero' ? '#e5937e' : event.magic ? '#cba8fa' : '#efe3bf',
       );
       if (!reduced) {
+        attacker.play(`${attacker.texture.key}-attack`, true);
         victim.setTintFill(event.magic ? 0xbc98ec : 0xd9c8ab);
         this.time.delayedCall(100, () => {
           if (victim === this.enemySprite && this.engine.enemy.phase === 2)
@@ -189,6 +251,7 @@ export class DungeonScene extends Phaser.Scene {
         },
       });
       if (!reduced) this.particles(this.enemyX, this.ground - 12, color, 18);
+      if (event.item.rarity === 'legendary') this.banner('LEGENDARY RELIC DISCOVERED', '#ffe0a0');
     }
     if (event.type === 'phase') {
       this.tweens.killTweensOf(this.enemySprite);
@@ -201,6 +264,13 @@ export class DungeonScene extends Phaser.Scene {
       }
       this.banner('THE CROWN AWAKENS', '#c6a0e7');
     }
+    if (event.type === 'telegraph' && !reduced)
+      this.particles(this.enemyX, this.ground - 50, 0xef6990, 16);
+    if (event.type === 'enemyAbility' && !reduced) {
+      this.slash(this.heroX, this.ground - 50, 0xff668b, true);
+      this.particles(this.heroX, this.ground - 30, 0xb995ff, 20);
+    }
+    if (event.type === 'encounter') this.banner(event.name.toUpperCase(), '#e7c58c');
     if (event.type === 'level') this.banner(`LEVEL ${event.level} · ASCENDED`, '#e0c185');
     if (event.type === 'death') this.banner('A MOMENT TO RECOVER', '#d0a293');
     if (event.type === 'clear' && event.first)
@@ -291,19 +361,39 @@ export class DungeonScene extends Phaser.Scene {
       onComplete: () => t.destroy(),
     });
   }
-  update(time: number, dt: number) {
+  update(_time: number, dt: number) {
     if (!this.ready) return;
     const paused = this.engine.state.settings.paused;
     const reduced = this.engine.state.settings.reducedMotion;
+    for (const sprite of [this.hero, this.enemySprite]) {
+      if (paused || reduced) sprite.anims.pause();
+      else sprite.anims.resume();
+    }
+    if (paused) this.tweens.pauseAll();
+    else this.tweens.resumeAll();
+    if (!paused && !reduced) this.worldTime += Math.min(dt, 100);
+    const time = this.worldTime;
+    if (this.renderedStage !== this.engine.state.stage) {
+      const old = this.background.texture.key;
+      const next = `dungeon-${this.engine.state.stage}`;
+      this.textures.addCanvas(next, dungeonArt(this.engine.state.stage));
+      this.background.setTexture(next);
+      this.textures.remove(old);
+      this.renderedStage = this.engine.state.stage;
+      this.layout();
+      if (!reduced) this.cameras.main.fadeIn(550, 8, 8, 16);
+    }
     const key = this.engine.enemy.kind;
     if (key !== this.visualKey) {
       this.visualKey = key;
       this.enemySprite.setTexture(key);
+      this.enemySprite.play(`${key}-idle`);
       this.layout();
     }
     const w = this.scale.width,
       h = this.scale.height;
     if (!paused && !reduced) {
+      this.lighting.forEach((light, i) => light.setAlpha(0.2 + Math.sin(time * 0.003 + i) * 0.04));
       this.hero.y = this.ground + Math.sin(time * 0.003) * 1.2;
       if (this.engine.enemy.hp > 0)
         this.enemySprite.y =
@@ -321,6 +411,16 @@ export class DungeonScene extends Phaser.Scene {
       this.fog.forEach((f, i) => (f.x = w * (i * 0.33) + Math.sin(time * 0.00012 + i * 2) * 60));
     }
     this.effects.clear();
+    if (Object.values(this.engine.state.equipment).some((item) => item.rarity === 'legendary'))
+      this.effects
+        .lineStyle(2, 0xf0c77d, reduced ? 0.5 : 0.45 + Math.sin(time * 0.004) * 0.2)
+        .strokeEllipse(this.heroX, this.ground - 8, 80, 20);
+    if (this.engine.intent) {
+      const progress = 1 - this.engine.intent.remaining / this.engine.intent.duration;
+      this.effects
+        .lineStyle(3, 0xff6f94, 0.7)
+        .strokeEllipse(this.heroX, this.ground - 7, 55 + progress * 40, 15 + progress * 10);
+    }
     // Torch sconces aligned with the original background, with pixel flames.
     const bgScale = this.background.scaleX,
       left = w / 2 - 320 * bgScale,

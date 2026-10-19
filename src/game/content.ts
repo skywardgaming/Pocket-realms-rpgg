@@ -1,4 +1,4 @@
-import type { Ability, Building, EnemyKind, Rarity, Slot } from './types';
+import type { Ability, Building, EnemyKind, EquipmentEffect, Rarity, Slot } from './types';
 export const ENEMIES: Record<
   EnemyKind,
   { name: string; health: number; interval: number; armorScale: number }
@@ -6,7 +6,24 @@ export const ENEMIES: Record<
   skeleton: { name: 'Restless Sentinel', health: 1, interval: 1.65, armorScale: 1 },
   hound: { name: 'Ashen Hound', health: 0.82, interval: 1.15, armorScale: 1 },
   wraith: { name: 'Veil Wraith', health: 0.92, interval: 2.05, armorScale: 0.5 },
+  cultist: { name: 'Ember Acolyte', health: 0.88, interval: 1.9, armorScale: 0.6 },
+  golem: { name: 'Obsidian Guardian', health: 1.2, interval: 2.25, armorScale: 1 },
   king: { name: 'The Hollow King', health: 1, interval: 1.65, armorScale: 1 },
+};
+export const EQUIPMENT_EFFECTS: Record<EquipmentEffect, { name: string; description: string }> = {
+  siphon: {
+    name: 'Soul Siphon',
+    description: 'Heal for 3% of strike damage per relic (up to 9%).',
+  },
+  ember: {
+    name: 'Emberforged',
+    description: 'Basic strikes deal 8% more damage per relic (up to 24%).',
+  },
+  focus: {
+    name: 'Arcane Focus',
+    description: 'Abilities recharge 8% faster per relic (up to 24%).',
+  },
+  bulwark: { name: 'Oathguard', description: 'Take 4% less damage per relic (up to 12%).' },
 };
 export const STAGES = [
   {

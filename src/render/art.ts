@@ -1,5 +1,6 @@
 import type { EnemyKind, Rarity, Slot } from '../game/types';
 import { RARITY } from '../game/content';
+import { stageTheme } from './themes';
 export function seeded(seed: number) {
   return () => {
     seed = (seed * 1664525 + 1013904223) >>> 0;
@@ -39,9 +40,9 @@ function glow(c: CanvasRenderingContext2D, x: number, y: number, radius: number,
   c.fillStyle = g;
   c.fillRect(x - radius, y - radius, radius * 2, radius * 2);
 }
-export function dungeonArt(): HTMLCanvasElement {
+export function dungeonArt(stage = 1): HTMLCanvasElement {
   const [el, c] = canvas(640, 360);
-  const random = seeded(8912);
+  const random = seeded(8912 + stage * 37);
   const back = c.createLinearGradient(0, 0, 0, 360);
   back.addColorStop(0, '#121a20');
   back.addColorStop(0.68, '#263030');
@@ -241,6 +242,92 @@ export function dungeonArt(): HTMLCanvasElement {
     [590, 360],
     [640, 360],
   ]);
+  const theme = stageTheme(stage);
+  c.globalCompositeOperation = 'soft-light';
+  rect(c, theme.tint, 0, 0, 640, 360);
+  c.globalCompositeOperation = 'source-over';
+  // Stage-specific silhouettes sit between the masonry and modern light bloom.
+  if (theme.motif === 'lava' || theme.motif === 'water') {
+    for (let y = 285; y < 360; y += 4) {
+      rect(c, theme.motif === 'lava' ? '#a3332266' : '#377f9c66', 0, y, 640, 3);
+      for (let i = 0; i < 8; i++)
+        rect(c, theme.light + '66', random() * 640, y, 5 + random() * 30, 1);
+    }
+  }
+  if (theme.motif === 'crystals' || theme.motif === 'gate') {
+    for (const x of [50, 110, 510, 580]) {
+      const height = 30 + random() * 65;
+      poly(c, theme.tint, [
+        [x - 10, 280],
+        [x - 8, 280 - height],
+        [x, 265 - height],
+        [x + 14, 280],
+      ]);
+      poly(c, theme.magic + '99', [
+        [x, 280],
+        [x - 8, 280 - height],
+        [x, 265 - height],
+        [x + 4, 280],
+      ]);
+      glow(c, x, 265, 55, theme.magic + '40');
+    }
+  }
+  if (theme.motif === 'bones' || theme.motif === 'ash') {
+    for (let i = 0; i < 75; i++) {
+      const x = random() * 640,
+        y = 263 + random() * 95;
+      rect(c, theme.motif === 'bones' ? '#afa78a99' : '#c6aaa477', x, y, 3 + random() * 8, 2);
+      if (i % 4 === 0) rect(c, '#d6c6a488', x, y - 2, 4, 5);
+    }
+  }
+  if (theme.motif === 'chains') {
+    for (const x of [105, 245, 395, 535])
+      for (let y = -10; y < 155; y += 9) {
+        c.strokeStyle = '#91aaa366';
+        c.lineWidth = 2;
+        c.strokeRect(x + Math.sin(y * 0.025) * 10, y, 4, 7);
+      }
+  }
+  if (theme.motif === 'banners' || theme.motif === 'throne') {
+    for (const x of [85, 500]) {
+      poly(c, '#6c283f', [
+        [x, 32],
+        [x + 45, 32],
+        [x + 45, 189],
+        [x + 22, 169],
+        [x, 189],
+      ]);
+      rect(c, '#c1a066', x + 21, 52, 3, 83);
+      rect(c, '#c1a066', x + 10, 74, 25, 3);
+    }
+  }
+  if (theme.motif === 'throne') {
+    poly(c, '#11111e', [
+      [280, 248],
+      [286, 124],
+      [300, 145],
+      [320, 100],
+      [340, 145],
+      [354, 124],
+      [360, 248],
+    ]);
+    c.strokeStyle = '#b28acb';
+    c.lineWidth = 2;
+    c.strokeRect(300, 160, 40, 70);
+    glow(c, 320, 170, 100, '#bc75ff55');
+  }
+  if (theme.motif === 'water') {
+    c.strokeStyle = '#77a2c5';
+    c.lineWidth = 3;
+    c.beginPath();
+    c.arc(320, 125, 43, 0, Math.PI * 2);
+    c.stroke();
+    rect(c, '#91bbd0', 318, 83, 4, 85);
+    rect(c, '#91bbd0', 278, 123, 85, 4);
+    glow(c, 320, 125, 95, '#68cfff40');
+  }
+  for (const x of [187, 451]) glow(c, x, 153, 135, theme.light + '45');
+  glow(c, 320, 220, 160, theme.magic + '35');
   const vignette = c.createRadialGradient(320, 205, 60, 320, 205, 365);
   vignette.addColorStop(0, 'transparent');
   vignette.addColorStop(1, '#050b10bb');
@@ -427,6 +514,62 @@ export function characterArt(kind: 'hero' | EnemyKind): HTMLCanvasElement {
       [28, 30],
     ]);
     rect(c, '#c4804d', 16, 25, 2, 4);
+  } else if (kind === 'cultist') {
+    glow(c, 24, 32, 26, '#f86e3d44');
+    poly(c, '#432332', [
+      [23, 6],
+      [34, 17],
+      [30, 30],
+      [40, 58],
+      [8, 58],
+      [17, 28],
+      [15, 16],
+    ]);
+    poly(c, '#a54c49', [
+      [23, 8],
+      [28, 21],
+      [24, 33],
+      [32, 54],
+      [20, 51],
+      [17, 28],
+    ]);
+    rect(c, '#171323', 20, 17, 12, 10);
+    rect(c, '#ffb067', 22, 21, 3, 2);
+    rect(c, '#ffb067', 28, 21, 3, 2);
+    rect(c, '#cbb57f', 24, 33, 2, 18);
+    rect(c, '#cbb57f', 20, 38, 10, 2);
+    rect(c, '#7d5848', 39, 17, 3, 42);
+    rect(c, '#f2924e', 37, 12, 7, 7);
+    glow(c, 40, 14, 14, '#ff734e99');
+  } else if (kind === 'golem') {
+    poly(c, '#171728', [
+      [14, 11],
+      [34, 11],
+      [43, 27],
+      [39, 49],
+      [32, 59],
+      [11, 59],
+      [5, 29],
+    ]);
+    rect(c, '#535064', 14, 13, 20, 12);
+    rect(c, '#222238', 17, 19, 17, 9);
+    rect(c, '#c296ff', 18, 21, 4, 2);
+    rect(c, '#c296ff', 28, 21, 4, 2);
+    rect(c, '#3c384e', 12, 29, 24, 19);
+    rect(c, '#81748c', 13, 29, 22, 3);
+    poly(c, '#ba8bef', [
+      [23, 32],
+      [29, 38],
+      [24, 44],
+      [19, 38],
+    ]);
+    rect(c, '#514b63', 3, 27, 9, 23);
+    rect(c, '#514b63', 36, 27, 10, 23);
+    rect(c, '#b38ad3', 4, 31, 2, 12);
+    rect(c, '#b38ad3', 41, 31, 2, 12);
+    rect(c, '#63596f', 12, 49, 9, 10);
+    rect(c, '#63596f', 27, 49, 10, 10);
+    glow(c, 24, 38, 20, '#ab7aff44');
   } else {
     glow(c, 44, 60, 43, '#7a4db733');
     poly(c, '#171627', [
@@ -525,6 +668,30 @@ export function characterArt(kind: 'hero' | EnemyKind): HTMLCanvasElement {
   return el;
 }
 const iconCache = new Map<string, string>();
+/** Seven original poses: four breathing/cloth frames and three attack poses. */
+export function characterSheet(kind: 'hero' | EnemyKind) {
+  const source = characterArt(kind);
+  const width = source.width + 20,
+    height = source.height + 16;
+  const [sheet, c] = canvas(width * 7, height);
+  for (let frame = 0; frame < 7; frame++) {
+    c.save();
+    c.beginPath();
+    c.rect(frame * width, 0, width, height);
+    c.clip();
+    c.translate(frame * width + width / 2, height - 8);
+    const attack = frame >= 4;
+    c.rotate(attack ? [0.05, kind === 'hero' ? 0.18 : -0.16, -0.04][frame - 4] : 0);
+    const breath = frame === 1 || frame === 2 ? -1 : 0;
+    c.drawImage(source, -source.width / 2, -source.height + breath);
+    // Pixel highlights and moving hems keep the animation crisp at native scale.
+    if (!attack && frame % 2) {
+      rect(c, kind === 'hero' ? '#b65550' : '#a78ac0', -source.width / 2 + 13, -12, 2, 4);
+    }
+    c.restore();
+  }
+  return { sheet, width, height };
+}
 export function itemArt(slot: Slot, rarity: Rarity): string {
   const key = slot + rarity;
   if (iconCache.has(key)) return iconCache.get(key)!;

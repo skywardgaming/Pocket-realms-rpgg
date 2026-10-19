@@ -1,4 +1,4 @@
-import { RARITIES, SLOTS } from './types';
+import { EFFECTS, RARITIES, SLOTS } from './types';
 import type { Item, SaveData } from './types';
 import { makeItem } from './loot';
 export const SAVE_KEY = 'pocket-realms.save.v1';
@@ -38,7 +38,14 @@ export function newSave(): SaveData {
       makeItem(1, () => 0.5, 'rare', 'amulet'),
     ],
     buildings: { blacksmith: 0, guild: 0, townhall: 0 },
-    settings: { paused: false, reducedMotion: false, autoAdvance: false, autoCast: true },
+    settings: {
+      paused: false,
+      reducedMotion: false,
+      autoAdvance: false,
+      autoCast: true,
+      sound: false,
+      music: false,
+    },
     savedAt: Date.now(),
   };
 }
@@ -56,6 +63,7 @@ function validItem(item: unknown): item is Item {
     RARITIES.includes(i.rarity) &&
     number(i.level, 1, 10) &&
     number(i.value, 0, 1e6) &&
+    (i.effect === undefined || EFFECTS.includes(i.effect)) &&
     !!i.stats &&
     ['attack', 'armor', 'health', 'crit'].every((key) =>
       number(i.stats[key as keyof Item['stats']], 0, 1e5),
@@ -113,6 +121,11 @@ export function parseSave(raw: string | null): SaveData | null {
       )
     )
       return null;
+    // Additive v2 settings: keep the v1 key, equipment, and progression intact.
+    for (const key of ['sound', 'music'] as const) {
+      if (s.settings[key] === undefined) s.settings[key] = false;
+      else if (typeof s.settings[key] !== 'boolean') return null;
+    }
     return s;
   } catch {
     return null;

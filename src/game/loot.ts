@@ -1,5 +1,5 @@
 import { RARITY } from './content';
-import { SLOTS } from './types';
+import { EFFECTS, SLOTS } from './types';
 import type { Item, Rarity, Slot, Stats } from './types';
 let sequence = 0;
 const names: Record<Slot, string[]> = {
@@ -77,8 +77,23 @@ export function makeItem(
     level: stage,
     stats,
     value: Math.round(8 + power * 2.6),
+    ...(index >= 2 ? { effect: EFFECTS[Math.floor(random() * EFFECTS.length)] } : {}),
   };
 }
+/** Reproducible commissions, with fresh IDs assigned only when purchased. */
+export function merchantItem(stage: number, slot: Slot): Item {
+  const item = makeItem(stage, () => 0.5, stage >= 5 && slot === 'amulet' ? 'epic' : 'rare', slot);
+  item.effect =
+    slot === 'weapon'
+      ? 'ember'
+      : slot === 'chest'
+        ? 'bulwark'
+        : slot === 'amulet'
+          ? 'focus'
+          : 'siphon';
+  return item;
+}
+export const merchantPrice = (item: Item) => item.value * 3;
 export function itemScore(item: Item): number {
   return (
     item.stats.attack * 3 + item.stats.armor * 2 + item.stats.health * 0.25 + item.stats.crit * 2
