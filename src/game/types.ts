@@ -3,6 +3,8 @@ export type Slot = (typeof SLOTS)[number];
 export const RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary'] as const;
 export type Rarity = (typeof RARITIES)[number];
 export type Stats = { attack: number; armor: number; health: number; crit: number };
+export const EFFECTS = ['siphon', 'ember', 'focus', 'bulwark'] as const;
+export type EquipmentEffect = (typeof EFFECTS)[number];
 export type Item = {
   id: string;
   name: string;
@@ -11,6 +13,7 @@ export type Item = {
   level: number;
   stats: Stats;
   value: number;
+  effect?: EquipmentEffect;
 };
 export type Building = 'blacksmith' | 'guild' | 'townhall';
 export type Settings = {
@@ -18,6 +21,8 @@ export type Settings = {
   reducedMotion: boolean;
   autoAdvance: boolean;
   autoCast: boolean;
+  sound: boolean;
+  music: boolean;
 };
 export type SaveData = {
   version: 1;
@@ -37,7 +42,7 @@ export type SaveData = {
   settings: Settings;
   savedAt: number;
 };
-export type EnemyKind = 'skeleton' | 'hound' | 'wraith' | 'king';
+export type EnemyKind = 'skeleton' | 'hound' | 'wraith' | 'cultist' | 'golem' | 'king';
 export type Enemy = {
   kind: EnemyKind;
   name: string;
@@ -54,6 +59,9 @@ export type GameEvent =
   | { type: 'kill'; gold: number; xp: number }
   | { type: 'spawn' }
   | { type: 'phase' }
+  | { type: 'telegraph'; name: string; duration: number }
+  | { type: 'enemyAbility'; name: string }
+  | { type: 'encounter'; name: string; text: string }
   | { type: 'level'; level: number }
   | { type: 'clear'; stage: number; first: boolean }
   | { type: 'death' }

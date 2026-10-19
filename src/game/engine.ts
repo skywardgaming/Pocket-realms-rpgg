@@ -1,5 +1,7 @@
 import { ABILITIES, ENEMIES, upgradeCost, xpNeeded } from './content';
-import { makeItem } from './loot';
+import { makeItem, merchantItem, merchantPrice } from './loot';
+import { EFFECTS, SLOTS } from './types';
+import type { EquipmentEffect, Slot } from './types';
 import type { Ability, Building, Enemy, GameEvent, SaveData, Stats } from './types';
 export class GameEngine {
   enemy!: Enemy;
@@ -7,6 +9,8 @@ export class GameEngine {
   wardRemaining = 0;
   respawnRemaining = 0;
   recovering = false;
+  intent: { name: string; remaining: number; duration: number; multiplier: number } | null = null;
+  private enemyStrikes = 0;
   private heroClock = 0;
   private enemyClock = 0;
   private listeners = new Set<(event: GameEvent) => void>();
@@ -33,6 +37,15 @@ export class GameEngine {
     for (const key of ['attack', 'armor', 'health'] as const) result[key] = Math.round(result[key]);
     return result;
   }
+  get effects(): Record<EquipmentEffect, number> {
+    const result = Object.fromEntries(EFFECTS.map((effect) => [effect, 0])) as Record<
+      EquipmentEffect,
+      number
+    >;
+    for (const item of Object.values(this.state.equipment))
+      if (item.effect) result[item.effect] = Math.min(3, result[item.effect] + 1);
+    return result;
+  }
   on(listener: (event: GameEvent) => void) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -45,7 +58,11 @@ export class GameEngine {
     const kind =
       stage === 10
         ? 'king'
-        : (['skeleton', 'hound', 'wraith'] as const)[(stage + this.state.kills - 1) % 3];
+        : stage < 4
+          ? (['skeleton', 'hound', 'wraith'] as const)[(stage + this.state.kills - 1) % 3]
+          : (['cultist', 'golem', 'wraith', 'hound', 'skeleton'] as const)[
+              (stage + this.state.kills - 4) % 5
+            ];
     const archetype = ENEMIES[kind];
     const hp =
       stage === 10
@@ -61,13 +78,18 @@ export class GameEngine {
     };
     this.heroClock = 0;
     this.enemyClock = 0;
+    this.enemyStrikes = 0;
+    this.intent = null;
     this.emit({ type: 'spawn' });
   }
   tick(seconds: number) {
     if (this.state.settings.paused || !Number.isFinite(seconds) || seconds <= 0) return;
     const dt = Math.min(seconds, 0.25);
     for (const ability of Object.keys(this.cooldowns) as Ability[])
-      this.cooldowns[ability] = Math.max(0, this.cooldowns[ability] - dt);
+      this.cooldowns[ability] = Math.max(
+        0,
+        this.cooldowns[ability] - dt * (1 + this.effects.focus * 0.08),
+      );
     this.wardRemaining = Math.max(0, this.wardRemaining - dt);
     if (this.respawnRemaining > 0) {
       this.respawnRemaining -= dt;
@@ -84,50 +106,100 @@ export class GameEngine {
       if (this.cooldowns.cleave <= 0) this.cast('cleave');
       if (this.respawnRemaining > 0) return;
       if (this.state.hp < this.stats.health * 0.65) this.cast('mend');
-      if (this.enemy.kind === 'king' || this.state.hp < this.stats.health * 0.5) this.cast('ward');
+      if (this.intent || this.enemy.kind === 'king' || this.state.hp < this.stats.health * 0.5)
+        this.cast('ward');
     }
     this.heroClock += dt;
-    this.enemyClock += dt;
     if (this.heroClock >= 0.95) {
       this.heroClock -= 0.95;
       this.attackEnemy(1, false);
     }
     if (this.respawnRemaining > 0) return;
+    if (this.intent) {
+      this.intent.remaining = Math.max(0, this.intent.remaining - dt);
+      if (this.intent.remaining <= 0) {
+        const intent = this.intent;
+        this.intent = null;
+        this.emit({ type: 'enemyAbility', name: intent.name });
+        this.enemyStrike(intent.multiplier);
+      }
+      return;
+    }
+    this.enemyClock += dt;
     if (this.enemyClock >= (this.enemy.phase === 2 ? 1.1 : ENEMIES[this.enemy.kind].interval)) {
       this.enemyClock = 0;
-      const damage = Math.max(
-        1,
-        Math.round(
-          this.enemy.attack *
-            (this.enemy.phase === 2 ? 1.45 : 1) *
-            (100 / (100 + this.stats.armor * 3 * ENEMIES[this.enemy.kind].armorScale)) *
-            (this.wardRemaining > 0 ? 0.45 : 1),
-        ),
-      );
-      this.state.hp = Math.max(0, this.state.hp - damage);
-      this.emit({
-        type: 'hit',
-        target: 'hero',
-        amount: damage,
-        critical: false,
-        magic: this.enemy.kind === 'wraith' || this.enemy.phase === 2,
-      });
-      if (this.state.hp <= 0) {
-        this.recovering = true;
-        this.respawnRemaining = 4;
-        this.state.kills = 0;
-        this.emit({ type: 'death' });
-      }
+      this.enemyStrikes++;
+      if (this.enemyStrikes % 3 === 0 && this.enemy.kind !== 'skeleton') {
+        const name = {
+          hound: 'Ravaging Lunge',
+          wraith: 'Soulbolt',
+          cultist: 'Searing Siphon',
+          golem: 'Granite Crush',
+          king: this.enemy.phase === 2 ? 'Crown of Ruin' : 'Royal Reckoning',
+        }[this.enemy.kind];
+        const duration = this.enemy.kind === 'king' ? (this.enemy.phase === 2 ? 1.2 : 1.7) : 1.4;
+        this.intent = {
+          name,
+          duration,
+          remaining: duration,
+          multiplier: this.enemy.kind === 'king' ? 1.9 : this.enemy.kind === 'golem' ? 1.8 : 1.4,
+        };
+        this.emit({ type: 'telegraph', name, duration });
+      } else this.enemyStrike(1);
+    }
+  }
+  private enemyStrike(multiplier: number) {
+    const damage = Math.max(
+      1,
+      Math.round(
+        this.enemy.attack *
+          multiplier *
+          (1 - this.effects.bulwark * 0.04) *
+          (this.enemy.phase === 2 ? 1.45 : 1) *
+          (100 / (100 + this.stats.armor * 3 * ENEMIES[this.enemy.kind].armorScale)) *
+          (this.wardRemaining > 0 ? 0.45 : 1),
+      ),
+    );
+    this.state.hp = Math.max(0, this.state.hp - damage);
+    this.emit({
+      type: 'hit',
+      target: 'hero',
+      amount: damage,
+      critical: false,
+      magic:
+        this.enemy.kind === 'wraith' || this.enemy.kind === 'cultist' || this.enemy.phase === 2,
+    });
+    if (this.enemy.kind === 'cultist' && multiplier > 1)
+      this.enemy.hp = Math.min(this.enemy.maxHp, this.enemy.hp + Math.round(damage * 0.3));
+    if (this.state.hp <= 0) {
+      this.recovering = true;
+      this.respawnRemaining = 4;
+      this.state.kills = 0;
+      this.emit({ type: 'death' });
     }
   }
   private attackEnemy(multiplier: number, magic: boolean) {
     if (this.enemy.hp <= 0) return;
     const critical = this.random() * 100 < this.stats.crit;
     const damage = Math.round(
-      this.stats.attack * multiplier * (0.9 + this.random() * 0.2) * (critical ? 1.85 : 1),
+      this.stats.attack *
+        multiplier *
+        (multiplier === 1 ? 1 + this.effects.ember * 0.08 : 1) *
+        (this.enemy.kind === 'golem' && !magic ? 0.8 : 1) *
+        (0.9 + this.random() * 0.2) *
+        (critical ? 1.85 : 1),
     );
+    const dealt = Math.min(this.enemy.hp, damage);
     this.enemy.hp = Math.max(0, this.enemy.hp - damage);
     this.emit({ type: 'hit', target: 'enemy', amount: damage, critical, magic });
+    const healing = Math.min(
+      this.stats.health - this.state.hp,
+      Math.round(dealt * this.effects.siphon * 0.03),
+    );
+    if (healing > 0) {
+      this.state.hp += healing;
+      this.emit({ type: 'heal', amount: healing });
+    }
     if (
       this.enemy.kind === 'king' &&
       this.enemy.phase === 1 &&
@@ -136,13 +208,16 @@ export class GameEngine {
       // The king always enters phase two, even if a powerful strike crosses zero.
       this.enemy.phase = 2;
       this.enemy.hp = Math.max(this.enemy.hp, this.enemy.maxHp * 0.35);
+      this.intent = null;
+      this.enemyClock = 0;
+      this.enemyStrikes = 0;
       this.emit({ type: 'phase' });
     }
     if (this.enemy.hp <= 0) this.defeatEnemy();
   }
   cast(ability: Ability): boolean {
     if (
-      !(ability in ABILITIES) ||
+      !Object.hasOwn(ABILITIES, ability) ||
       this.state.settings.paused ||
       this.respawnRemaining > 0 ||
       this.cooldowns[ability] > 0
@@ -164,7 +239,9 @@ export class GameEngine {
     return true;
   }
   private defeatEnemy() {
+    this.intent = null;
     const s = this.state;
+    const defeatedStage = s.stage;
     const gold = Math.round(
       (15 + s.stage * 7) * (1 + s.buildings.townhall * 0.15) * (s.stage === 10 ? 8 : 1),
     );
@@ -195,12 +272,55 @@ export class GameEngine {
     }
     if (cleared) {
       const first = !s.cleared.includes(s.stage);
-      if (first) s.cleared.push(s.stage);
+      if (first) {
+        s.cleared.push(s.stage);
+        s.gold += 25 * s.stage;
+        if (s.stage % 3 === 0 && s.stage < 10) {
+          const relic = makeItem(s.stage, this.random, s.stage >= 6 ? 'epic' : 'rare');
+          if (s.inventory.length < 60) {
+            s.inventory.unshift(relic);
+            this.emit({ type: 'loot', item: relic });
+          } else s.gold += relic.value;
+        }
+        this.emit({
+          type: 'encounter',
+          name: 'First light bounty',
+          text: `First clear: +${25 * s.stage} gold${s.stage % 3 === 0 && s.stage < 10 ? ' and a milestone relic' : ''}.`,
+        });
+      }
       s.unlocked = Math.max(s.unlocked, Math.min(10, s.stage + 1));
       if (s.stage === 10) s.bossDefeated = true;
       this.emit({ type: 'clear', stage: s.stage, first });
       s.kills = 0;
       if (s.settings.autoAdvance && s.stage < 10) s.stage++;
+    }
+    if (s.totalKills % 5 === 0 && defeatedStage !== 10) {
+      const event = Math.floor(s.totalKills / 5) % 3;
+      if (event === 0) {
+        const amount = Math.min(this.stats.health - s.hp, Math.round(this.stats.health * 0.18));
+        s.hp += amount;
+        this.emit({
+          type: 'encounter',
+          name: 'Crimson spring',
+          text: `A hidden spring restores ${amount} vitality.`,
+        });
+        if (amount > 0) this.emit({ type: 'heal', amount });
+      } else if (event === 1) {
+        s.gold += defeatedStage * 12;
+        this.emit({
+          type: 'encounter',
+          name: 'Forgotten cache',
+          text: `A sealed coffer yields ${defeatedStage * 12} gold.`,
+        });
+      } else {
+        for (const ability of Object.keys(this.cooldowns) as Ability[])
+          this.cooldowns[ability] = Math.max(0, this.cooldowns[ability] - 4);
+        this.emit({
+          type: 'encounter',
+          name: 'Astral shrine',
+          text: 'A violet shrine restores 4 seconds of ability charge.',
+        });
+      }
     }
     s.hp = Math.min(this.stats.health, s.hp + Math.round(this.stats.health * 0.09));
     this.respawnRemaining = 1.5;
@@ -235,6 +355,16 @@ export class GameEngine {
     if (index < 0) return false;
     this.state.gold += this.state.inventory[index].value;
     this.state.inventory.splice(index, 1);
+    return true;
+  }
+  buy(slot: Slot): boolean {
+    if (!SLOTS.includes(slot) || this.state.inventory.length >= 60) return false;
+    const item = merchantItem(this.state.unlocked, slot),
+      cost = merchantPrice(item);
+    if (this.state.gold < cost) return false;
+    this.state.gold -= cost;
+    this.state.inventory.unshift(item);
+    this.emit({ type: 'loot', item });
     return true;
   }
   upgrade(building: Building): boolean {

@@ -1,4 +1,6 @@
 const paths: Record<string, string> = {
+  volume: '<path d="M4 9h4l5-5v16l-5-5H4Z"/><path d="M17 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
+  mute: '<path d="M4 9h4l5-5v16l-5-5H4Z"/><path d="m17 9 5 6m0-6-5 6"/>',
   sword: '<path d="m15 3 5 1-1 5L9 19l-4-4Z"/><path d="m3 13 8 8M7 17l-5 5M16 6l-7 9"/>',
   dungeon:
     '<path d="M4 21V9l8-6 8 6v12h-5v-7a3 3 0 0 0-6 0v7Z"/><path d="M3 9h18M5 5V2m14 3V2M11 4V1"/>',

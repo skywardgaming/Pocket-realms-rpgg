@@ -28,7 +28,15 @@ export class DungeonScene extends Phaser.Scene {
   create() {
     this.textures.addCanvas('dungeon', dungeonArt(this.engine.state.stage));
     this.renderedStage = this.engine.state.stage;
-    for (const key of ['hero', 'skeleton', 'hound', 'wraith', 'king'] as const) {
+    for (const key of [
+      'hero',
+      'skeleton',
+      'hound',
+      'wraith',
+      'cultist',
+      'golem',
+      'king',
+    ] as const) {
       const { sheet, width, height } = characterSheet(key);
       const texture = this.textures.addCanvas(key, sheet)!;
       this.textures.addSpriteSheet('', texture, { frameWidth: width, frameHeight: height });
@@ -133,6 +141,24 @@ export class DungeonScene extends Phaser.Scene {
   private event(event: GameEvent) {
     if (!this.ready) return;
     const reduced = this.engine.state.settings.reducedMotion;
+    if (event.type === 'ability' && event.ability === 'cleave' && !reduced) {
+      const trail = this.add.graphics().setDepth(6);
+      for (let i = 0; i < 3; i++)
+        trail
+          .lineStyle(7 - i * 2, i === 2 ? 0xf0dfff : 0xb27bfa, 0.2 + i * 0.25)
+          .lineBetween(
+            this.heroX + 20,
+            this.ground - 60 + i * 5,
+            this.enemyX,
+            this.ground - 45 + i * 5,
+          );
+      this.tweens.add({
+        targets: trail,
+        alpha: 0,
+        duration: 350,
+        onComplete: () => trail.destroy(),
+      });
+    }
     if (event.type === 'spawn') {
       this.tweens.killTweensOf(this.enemySprite);
       this.enemySprite.setTexture(this.engine.enemy.kind).clearTint().setAlpha(1);
@@ -238,6 +264,13 @@ export class DungeonScene extends Phaser.Scene {
       }
       this.banner('THE CROWN AWAKENS', '#c6a0e7');
     }
+    if (event.type === 'telegraph' && !reduced)
+      this.particles(this.enemyX, this.ground - 50, 0xef6990, 16);
+    if (event.type === 'enemyAbility' && !reduced) {
+      this.slash(this.heroX, this.ground - 50, 0xff668b, true);
+      this.particles(this.heroX, this.ground - 30, 0xb995ff, 20);
+    }
+    if (event.type === 'encounter') this.banner(event.name.toUpperCase(), '#e7c58c');
     if (event.type === 'level') this.banner(`LEVEL ${event.level} · ASCENDED`, '#e0c185');
     if (event.type === 'death') this.banner('A MOMENT TO RECOVER', '#d0a293');
     if (event.type === 'clear' && event.first)
@@ -378,6 +411,16 @@ export class DungeonScene extends Phaser.Scene {
       this.fog.forEach((f, i) => (f.x = w * (i * 0.33) + Math.sin(time * 0.00012 + i * 2) * 60));
     }
     this.effects.clear();
+    if (Object.values(this.engine.state.equipment).some((item) => item.rarity === 'legendary'))
+      this.effects
+        .lineStyle(2, 0xf0c77d, reduced ? 0.5 : 0.45 + Math.sin(time * 0.004) * 0.2)
+        .strokeEllipse(this.heroX, this.ground - 8, 80, 20);
+    if (this.engine.intent) {
+      const progress = 1 - this.engine.intent.remaining / this.engine.intent.duration;
+      this.effects
+        .lineStyle(3, 0xff6f94, 0.7)
+        .strokeEllipse(this.heroX, this.ground - 7, 55 + progress * 40, 15 + progress * 10);
+    }
     // Torch sconces aligned with the original background, with pixel flames.
     const bgScale = this.background.scaleX,
       left = w / 2 - 320 * bgScale,

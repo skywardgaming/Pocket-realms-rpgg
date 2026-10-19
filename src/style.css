@@ -2270,7 +2270,7 @@ h1 {
   .header-divider {
     display: none;
   }
-  .header-right > .icon-button:first-of-type {
+  .header-right > .icon-button[data-action='guide'] {
     display: none;
   }
   .icon-button {
